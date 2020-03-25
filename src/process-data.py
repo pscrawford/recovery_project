@@ -4,6 +4,12 @@ import pandas as pd
 import numpy as np 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import LabelBinarizer
+
+# instantiate encoders
+txt_to_int = LabelEncoder()
+one_hot = OneHotEncoder()
+binarizer = LabelBinarizer()
 
 ##########################
 # load complete data set
@@ -44,11 +50,11 @@ dat_all['age_80_00'] = dat_all['F80_90'] + dat_all['F90_00']
 keep_cols = [
     # basic parcel info:
     'TCLDist', 'ChangeCat', 'AffectLvl', 
-    # can probably drop these fixed effects:
+    # NB: can probably drop these fixed effects:
     'subdDESC', 'TractID', 'BlockID', 'ZipCode',
     # tract-level info
     'age_pre_50', 'age_50_80', 'age_80_00', 'age_post_00',
-    'MHI', 'Pov',
+    'total_tract_bldgs', 'MHI', 'Pov',
     # block-level info
     # TODO: 
     # - re-encode block-level occupancy
@@ -56,7 +62,8 @@ keep_cols = [
     'OwnWMort', 'OwnOutrigh', 'RentOcc', 'Average_ho',
     # parcel-level info from county assessor
     'tot_land_v', 'tot_bldg_v', 'assessed_v', 'total_tax', 'bldg_type', 
-    'bldg_code', 'total_buil', 'max_storie', 'earliest_y','total_bldg',
+    # NB: total_buil = # of buildings; total_bldg = building area
+    'bldg_code', 'total_buil', 'max_storie', 'earliest_y', 'total_bldg',
 ]
 
 y_cols = [
@@ -81,10 +88,50 @@ dat = dat_all[(dat_all.AffectLvl.isin(['Damaged', 'Destroyed'])) &
 dat.shape
 
 ##########################
+# Re-encode categorical columns:
+# For ['ChangeCat', 'AffecLvl', 'subdDESC'] - pd.get_dummies
+# - Drop ['TractID', 'BlockID'] ?
+# For ['bldg_type', 'bldg_code'] - LabelBinarizer
+
+cat_cols = ['ChangeCat', 'AffectLvl', 'subdDESC', 'TractID', 'BlockID']
+int_cols = ['bldg_type', 'bldg_code']
+
+# NB: returns all of dat
+dat_cat = pd.get_dummies(dat, columns=cat_cols, prefix=cat_cols)
+# alternative, select cat_cols?
+# dat_cat = dat.select_dtypes(include=['object']).copy()
+
+dat_int = dat[['bldg_type', 'bldg_code']].copy()
+
+## TODO: pd.apply this method?
+def int_encode(x, name):
+    out = binarizer.fit_transform(x[name])
+    header = [name + '_' + str(s) for s in binarizer.classes_]
+    xx = pd.DataFrame(out, columns=header)
+    return xx
+
+df_list = []
+
+for col in int_cols: 
+    int_out = int_encode(dat_int, col) 
+    df_list.append(int_out)
+    # dat_int = pd.concat([dat_int, int_out], axis=1)
+    # df_new = df_new.append(int_out, ignore_index=True)
+
+dat_int = pd.concat(df_list, axis=1)
+
+# NB: problems with indices because dat_cat preserves original while dat_int does not
+dat_cat = pd.concat([dat_cat.reset_index(drop=True), dat_int], axis=1).drop(int_cols, axis=1)
+
+
+##########################
 # select response
 
 # 1. integer encoding
 # NB: clunky because of need to preserve order
+# alt: Label encoding y_cols, then replace missing with len(y_cols)
+
+# TODO: wrap in method?
 # add new category (no observed recovery)
 y_int = dat['EndRange'].replace(['', ' ', '-'], 4)
 # encode the remaining categories as int
@@ -96,13 +143,13 @@ y_int = y_int.values.reshape(-1,1)
 y_int.shape
 
 # 2. categorical encoding
-one_hot = OneHotEncoder()
 y = one_hot.fit_transform(y_int).toarray()
 y.shape
 
 
 ######################################################################
-# Alternative: re-encode existing categorical columns 
+# Alternative categorical encoding: 
+# - re-encode existing categorical columns 
 # NB: clunky because of sum before creating new category (no observed recovery)
 
 y_cat = dat.loc[:,y_cols]
@@ -116,5 +163,5 @@ y_cat.shape
 
 ##########################
 # once categorical columns have been processed
-X = dat.drop('EndRange' + y_cols, axis=1)
-X = np.array(dat)
+X = dat_cat.drop(['EndRange'] + y_cols, axis=1)
+X = np.array(X)
