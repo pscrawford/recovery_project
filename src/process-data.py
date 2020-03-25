@@ -123,6 +123,8 @@ dat_int = pd.concat(df_list, axis=1)
 # NB: problems with indices because dat_cat preserves original while dat_int does not
 dat_cat = pd.concat([dat_cat.reset_index(drop=True), dat_int], axis=1).drop(int_cols, axis=1)
 
+# write to csv
+dat_cat.to_csv('../data/dat_cat.csv')
 
 ##########################
 # select response
@@ -142,10 +144,13 @@ y_int.replace('02_2016', 3, inplace=True)
 y_int = y_int.values.reshape(-1,1)
 y_int.shape
 
+np.savetxt('../data/y_int.csv', y_int, delimiter=",")
+
 # 2. categorical encoding
 y = one_hot.fit_transform(y_int).toarray()
 y.shape
 
+np.savetxt('../data/y.csv', y, delimiter=",")
 
 ######################################################################
 # Alternative categorical encoding: 
@@ -158,6 +163,9 @@ y_cat['sum'] = y_cat.sum(axis=1)
 y_cat['None'] = np.where(y_cat['sum'] == 0, 1, 0)
 y_cat.drop('sum', axis=1, inplace=True)
 y_cat.shape
+
+np.savetxt('../data/y_cat.csv', y_cat, delimiter=",")
+
 ######################################################################
 
 
@@ -165,3 +173,5 @@ y_cat.shape
 # once categorical columns have been processed
 X = dat_cat.drop(['EndRange'] + y_cols, axis=1)
 X = np.array(X)
+
+np.savetxt('../data/X.csv', X, delimiter=",")
