@@ -11,6 +11,14 @@ txt_to_int = LabelEncoder()
 one_hot = OneHotEncoder()
 binarizer = LabelBinarizer()
 
+## method to one-hot encode int column
+## TODO: pd.apply this method?
+def int_encode(x, name):
+    out = binarizer.fit_transform(x[name])
+    header = [name + '_' + str(s) for s in binarizer.classes_]
+    xx = pd.DataFrame(out, columns=header)
+    return xx
+
 ##########################
 # load complete data set
 dat_all = pd.read_csv('../data/model-data-421.csv')
@@ -49,15 +57,15 @@ dat_all['age_80_00'] = dat_all['F80_90'] + dat_all['F90_00']
 # drop unwanted columns
 keep_cols = [
     # basic parcel info:
-    'TCLDist', 'ChangeCat', 'AffectLvl', 
+    'TCLDist', 'AffectLvl', 
     # NB: can probably drop these fixed effects:
-    'subdDESC', 'TractID', 'BlockID', 'ZipCode',
-    # tract-level info
+    # 'subdDESC', 'TractID', 'BlockID', 'ZipCode',
+    # # tract-level info
     'age_pre_50', 'age_50_80', 'age_80_00', 'age_post_00',
     'total_tract_bldgs', 'MHI', 'Pov',
-    # block-level info
-    # TODO: 
-    # - re-encode block-level occupancy
+    # # block-level info
+    # # TODO: 
+    # # - re-encode block-level occupancy
     'Population', 'HousUnits', 'Occupied', 'Vacant', 
     'OwnWMort', 'OwnOutrigh', 'RentOcc', 'Average_ho',
     # parcel-level info from county assessor
@@ -79,11 +87,16 @@ dat_all.shape
 
 ##########################
 # filter rows
-dat = dat_all[(dat_all.AffectLvl.isin(['Damaged', 'Destroyed'])) & 
-              # filter by building value or by assessed value?
-              (dat_all.tot_bldg_v > 0) &
-              # filter parcels with buildings > 0 and stories > 0
-              (dat_all.total_buil > 0) & (dat_all.max_storie > 0)]
+# TODO: masking missing values
+# https://stackoverflow.com/a/55423706/5037901
+
+# dat = dat_all[(dat_all.AffectLvl.isin(['Damaged', 'Destroyed'])) & 
+#               # filter by building value or by assessed value?
+#               (dat_all.tot_bldg_v > 0) &
+#               # filter parcels with buildings > 0 and stories > 0
+#               (dat_all.total_buil > 0) & (dat_all.max_storie > 0)]
+
+dat = dat_all[(dat_all.AffectLvl.isin(['Damaged', 'Destroyed']))]
 
 dat.shape
 
@@ -93,35 +106,43 @@ dat.shape
 # - Drop ['TractID', 'BlockID'] ?
 # For ['bldg_type', 'bldg_code'] - LabelBinarizer
 
-cat_cols = ['ChangeCat', 'AffectLvl', 'subdDESC', 'TractID', 'BlockID']
-int_cols = ['bldg_type', 'bldg_code']
+cat_cols = [#'ChangeCat',
+            'AffectLvl',
+            #'subdDESC',
+            #'TractID',
+            #'BlockID'
+]
+
+int_cols = ['bldg_type',
+            'bldg_code' # perfectly correlated
+]
 
 # NB: returns all of dat
 dat_cat = pd.get_dummies(dat, columns=cat_cols, prefix=cat_cols)
 # alternative, select cat_cols?
 # dat_cat = dat.select_dtypes(include=['object']).copy()
 
-dat_int = dat[['bldg_type', 'bldg_code']].copy()
+# dat_cat = pd.get_dummies(dat[cat_cols], prefix=cat_cols)
+# dat_cat = pd.concat([dat['TCLDist'], dat_cat, dat_int], axis=1)
 
-## TODO: pd.apply this method?
-def int_encode(x, name):
-    out = binarizer.fit_transform(x[name])
-    header = [name + '_' + str(s) for s in binarizer.classes_]
-    xx = pd.DataFrame(out, columns=header)
-    return xx
 
-df_list = []
+# NB: for multiple int columns:
+# dat_int = dat[int_cols].copy()
 
-for col in int_cols: 
-    int_out = int_encode(dat_int, col) 
-    df_list.append(int_out)
-    # dat_int = pd.concat([dat_int, int_out], axis=1)
-    # df_new = df_new.append(int_out, ignore_index=True)
+# df_list = []
 
-dat_int = pd.concat(df_list, axis=1)
-
+# for col in int_cols: 
+#     int_out = int_encode(dat_int, col) 
+#     df_list.append(int_out)
+#     # dat_int = pd.concat([dat_int, int_out], axis=1)
+#     # df_new = df_new.append(int_out, ignore_index=True)
+# dat_int = pd.concat(df_list, axis=1)
 # NB: problems with indices because dat_cat preserves original while dat_int does not
-dat_cat = pd.concat([dat_cat.reset_index(drop=True), dat_int], axis=1).drop(int_cols, axis=1)
+# dat_cat = pd.concat([dat_cat.reset_index(drop=True), dat_int], axis=1).drop(int_cols, axis=1)
+
+dat_int = int_encode(dat, 'bldg_type').set_index(dat.index)
+
+dat_cat = pd.concat([dat_cat, dat_int], axis=1).drop(int_cols, axis=1)
 
 # write to csv
 dat_cat.to_csv('../data/dat_cat.csv')
@@ -130,10 +151,8 @@ dat_cat.to_csv('../data/dat_cat.csv')
 # select response
 
 # 1. integer encoding
-# NB: clunky because of need to preserve order
 # alt: Label encoding y_cols, then replace missing with len(y_cols)
 
-# TODO: wrap in method?
 # add new category (no observed recovery)
 y_int = dat['EndRange'].replace(['', ' ', '-'], 4)
 # encode the remaining categories as int
@@ -144,13 +163,14 @@ y_int.replace('02_2016', 3, inplace=True)
 y_int = y_int.values.reshape(-1,1)
 y_int.shape
 
-np.savetxt('../data/y_int.csv', y_int, delimiter=",")
+np.savetxt('../data/y_int.csv', y_int, delimiter=',')
 
 # 2. categorical encoding
+# y = int_encode(dat.replace(['', ' ', '-'], 'No_Recovery'), 'EndRange').set_index(dat.index)
 y = one_hot.fit_transform(y_int).toarray()
 y.shape
 
-np.savetxt('../data/y.csv', y, delimiter=",")
+np.savetxt('../data/y.csv', y, delimiter=',')
 
 ######################################################################
 # Alternative categorical encoding: 
@@ -164,7 +184,7 @@ y_cat['None'] = np.where(y_cat['sum'] == 0, 1, 0)
 y_cat.drop('sum', axis=1, inplace=True)
 y_cat.shape
 
-np.savetxt('../data/y_cat.csv', y_cat, delimiter=",")
+np.savetxt('../data/y_cat.csv', y_cat, delimiter=',')
 
 ######################################################################
 
@@ -174,4 +194,6 @@ np.savetxt('../data/y_cat.csv', y_cat, delimiter=",")
 X = dat_cat.drop(['EndRange'] + y_cols, axis=1)
 X = np.array(X)
 
-np.savetxt('../data/X.csv', X, delimiter=",")
+np.savetxt('../data/X.csv', X, delimiter=',')
+
+
